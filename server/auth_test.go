@@ -293,4 +293,3 @@ type wrappedErr struct{ inner error }
 
 func (w *wrappedErr) Error() string { return "wrapped: " + w.inner.Error() }
 func (w *wrappedErr) Unwrap() error { return w.inner }
-

@@ -131,14 +131,14 @@ func knownOp(op string) bool {
 // outside this struct are ignored, so the vector format can grow without
 // pinning this code to it.
 type vectorFile struct {
-	Name              string          `json:"name"`
-	NetworkPassphrase string          `json:"network_passphrase"`
-	ValidUntilLedger  uint32          `json:"valid_until_ledger"`
-	UnsignedEntryXDR  string          `json:"unsigned_entry_xdr"`
-	PreimageXDR       string          `json:"preimage_xdr"`
-	PayloadHex        string          `json:"payload_hex"`
-	SignedEntryXDR    string          `json:"signed_entry_xdr"`
-	Steps             []vectorStep    `json:"steps"`
+	Name              string       `json:"name"`
+	NetworkPassphrase string       `json:"network_passphrase"`
+	ValidUntilLedger  uint32       `json:"valid_until_ledger"`
+	UnsignedEntryXDR  string       `json:"unsigned_entry_xdr"`
+	PreimageXDR       string       `json:"preimage_xdr"`
+	PayloadHex        string       `json:"payload_hex"`
+	SignedEntryXDR    string       `json:"signed_entry_xdr"`
+	Steps             []vectorStep `json:"steps"`
 }
 
 type vectorStep struct {
