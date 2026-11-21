@@ -44,12 +44,12 @@ type File struct {
 // Case is one row in the suite. Exactly one of Vector or Input must be set;
 // Override (when present) layers on top of a Vector to tweak one input.
 type Case struct {
-	ID       string            `json:"id"`
-	Op       string            `json:"op"`
-	Vector   string            `json:"vector,omitempty"`
-	Input    map[string]any    `json:"input,omitempty"`
-	Override map[string]any    `json:"override,omitempty"`
-	Expect   *ExpectedOutcome  `json:"expect,omitempty"`
+	ID       string           `json:"id"`
+	Op       string           `json:"op"`
+	Vector   string           `json:"vector,omitempty"`
+	Input    map[string]any   `json:"input,omitempty"`
+	Override map[string]any   `json:"override,omitempty"`
+	Expect   *ExpectedOutcome `json:"expect,omitempty"`
 }
 
 // ExpectedOutcome is the stated outcome for a case that is not a plain
@@ -67,21 +67,21 @@ type ExpectedOutcome struct {
 
 // Operations the suite knows about. New ops add a row here plus a Run branch.
 const (
-	OpPreimage           = "preimage"
-	OpPayload            = "payload"
-	OpAuthorizeWithSeed  = "authorize_with_seed"
+	OpPreimage          = "preimage"
+	OpPayload           = "payload"
+	OpAuthorizeWithSeed = "authorize_with_seed"
 )
 
 // Result is one NDJSON line a runner emits. It is marshalled by MarshalJSON
 // so the on-wire order matches the README's contract.
 type Result struct {
-	ID            string `json:"id"`
-	OK            bool   `json:"ok"`
-	PreimageXDR   string `json:"preimage_xdr,omitempty"`
-	PayloadHex    string `json:"payload_hex,omitempty"`
+	ID             string `json:"id"`
+	OK             bool   `json:"ok"`
+	PreimageXDR    string `json:"preimage_xdr,omitempty"`
+	PayloadHex     string `json:"payload_hex,omitempty"`
 	SignedEntryB64 string `json:"signed_entry_xdr,omitempty"`
-	Kind          string `json:"kind,omitempty"`
-	Error         string `json:"error,omitempty"`
+	Kind           string `json:"kind,omitempty"`
+	Error          string `json:"error,omitempty"`
 }
 
 // Load reads and validates a cases.json file at path.
