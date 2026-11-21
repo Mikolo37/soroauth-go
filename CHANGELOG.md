@@ -21,7 +21,7 @@ this project adheres to
 - Guarantee no Go panic crosses an FFI boundary: every `//export` in
   `bindings/c/soroauth.go` now defers a recover that converts a panic into the
   ABI's error envelope (a new `PANIC` kind), writes the Go stack to stderr
-  instead of the caller's return value, and sanitises embedded newlines. An
+  instead of the caller's return value, and strips embedded newlines. An
   enumeration test fails if a new `//export` is added without the guard or
   without the named return value the guard needs to write through. (#546)
 
