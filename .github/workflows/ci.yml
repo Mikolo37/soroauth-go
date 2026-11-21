@@ -35,6 +35,8 @@ jobs:
           if [ -n "$unformatted" ]; then
             echo "these files are not gofmt clean:"
             echo "$unformatted"
+            echo "--- gofmt -d ---"
+            gofmt -d $unformatted
             exit 1
           fi
       - name: vet
