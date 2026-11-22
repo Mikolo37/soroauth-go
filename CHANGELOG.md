@@ -34,6 +34,12 @@ this project adheres to
   asserting the rejected body carries no information about the submitted entry.
   (#548)
 
+- Add a per-caller token-bucket rate limit to the verification service, checked
+  before the body is read and before a concurrency slot is taken. A refusal is
+  `429` with `Retry-After`; `AUTH_TOKEN` accepts a comma-separated list so
+  distinct clients get distinct quotas, and a new limit-rejection metric splits
+  sheds by rate, concurrency and body. (#549)
+
 - Add mutual TLS and optional certificate pinning for the gRPC service:
   `integrations/grpc/tls.go` builds `grpc.credentials.TransportCredentials` that
   require and verify client certificates at the handshake, so an unverified
@@ -41,6 +47,23 @@ this project adheres to
   the hex SHA-256 of the peer's SPKI. Tests cover an untrusted client, an
   expired certificate, a pin mismatch, and the happy path; test certificates are
   generated at test time and never committed. (#554)
+
+- Run the OpenAPI conformance check on pull requests when its inputs change, and
+  prove the check rejects an extra field, a renamed field, an undeclared status
+  and the wrong body shape rather than only passing on a correct response.
+  (#552)
+
+- Add an offline browser signing page whose assets are all local: it derives the
+  payload in the WASM core, signs with a passkey, verifies the assertion
+  locally, builds the signature ScVal with a new wasm binding, and makes no
+  request after load. A Playwright test aborts and records every request after
+  load so a CDN import or font fetch fails the run. (#557)
+
+- Add a Helm chart and plain Kubernetes manifests for the verification service.
+  The chart runs the server from the published image, uses `/healthz` for all
+  probes, separates metrics onto their own Service, and refuses to render
+  without an existing token Secret. CI lints and validates both, then deploys
+  the chart in kind and verifies a golden vector through the service. (#560)
 
 - Make the WebAssembly signing core reproducible: both targets are built with
   `-trimpath -buildvcs=false`, `scripts/reproduce-wasm.sh` rebuilds a tag twice
@@ -61,6 +84,33 @@ this project adheres to
   legacy, V2 and delegates entries, and a negative control removes the V2
   signature and requires the host to refuse it. The `modular-account` fixture
   gains a `require_all` entry point for it. (#566)
+
+- Publish the Python binding to PyPI on each `v*` tag: a per-platform wheel
+  matrix (linux-x86\_64, linux-aarch64, darwin-x86\_64, darwin-aarch64) bundles
+  the `libsoroauth` native library, auditwheel / delocate repair satisfies the
+  manylinux and macOS policies, and PyPI trusted publishing (OIDC) replaces any
+  long-lived token. A golden-vector smoke test runs before and after publish.
+  (#540)
+
+- Add PEP 561 `py.typed` marker and `__init__.pyi` stubs to the Python binding:
+  all public symbols, exception classes, and result types are typed, a mypy
+  harness in `bindings/python/typecheck/` verifies the stubs, and
+  `ci-python.yml` runs `mypy --strict` on every push to `main`. (#541)
+
+- Publish the JVM binding to Maven Central on each `v*` tag: the pom now carries
+  all required Central metadata (licenses, developers, scm, issueManagement), a
+  `release` profile adds sources, Javadoc, and GPG signatures via the new
+  Central Portal (`central-publishing-maven-plugin`), a four-platform native
+  matrix builds and bundles `libsoroauth`, and a cross-platform consumer smoke
+  test resolves the published artifact from `repo1.maven.org` and replays all
+  golden vectors. (#544)
+
+- Document the C ABI threading contract in `bindings/c/THREADING.md`: every
+  exported symbol is concurrency-safe with no initialisation call and no
+  library-wide lock; the caller owns every returned `char *` and must call
+  `SoroauthFree` exactly once. `TestABIThreadingContract` proves the contract on
+  the Go side with `GOMAXPROCS*4` goroutines running 24 iterations each under
+  `go test -race`. (#547)
 
 - Expose `Version` constant in the root package and document it in package docs,
   ensuring programmatic access to the library version and aligning CLI defaults

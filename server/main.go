@@ -51,6 +51,15 @@ const (
 	defaultShutdownTimeout   = 10 * time.Second
 	defaultMaxConcurrent     = 64
 
+	// Rate limits are per caller and apply before the body is read. The
+	// defaults are deliberately generous for a verification service — one
+	// caller can sustain 50 requests a second, with a burst of 100 after an
+	// idle period — while still bounding a caller that tries to starve the
+	// rest. They are configurable because a deployment behind its own gateway
+	// may want either a tighter or a much looser quota.
+	defaultRateLimitPerSecond = 50
+	defaultRateLimitBurst     = 100
+
 	// maxRequestBodySize bounds the JSON request body, by default. An
 	// authorization entry carries a small invocation tree; the library refuses
 	// decoded entries past soroauth.MaxDecodeInputBytes, and the base64 form of
@@ -70,11 +79,16 @@ type config struct {
 	// MetricsAddr is the Prometheus listen address. "off", "none" or "-"
 	// disables the metrics server.
 	MetricsAddr string
-	// AuthToken is the raw AUTH_TOKEN value. Historically a single bearer
-	// token; now also accepts the richer id:token:ops;... syntax
-	// Authenticator parses. Kept on config for the one hardening test that
-	// asserts the value survives loadConfig.
+	// AuthToken is the raw AUTH_TOKEN value. Used directly when the value
+	// contains the richer id:token:ops;... syntax (set by a library caller
+	// or a test, never from loadConfig's environment parsing).
 	AuthToken string
+	// AuthTokens are the bearer tokens /verify and /risk accept, parsed from
+	// AUTH_TOKEN by loadConfig via splitTokens. A comma in AUTH_TOKEN separates
+	// several plain tokens: each gets a distinct caller identity for the rate
+	// limiter. Empty means no authentication, which is only allowed on a
+	// loopback bind.
+	AuthTokens []string
 
 	// Authenticator decides whether a request may invoke an operation.
 	// loadConfig installs either openLoopbackAuthenticator (unauthenticated
@@ -96,6 +110,14 @@ type config struct {
 	// once. A request over the bound is refused with 503 rather than queued.
 	MaxConcurrentRequests int
 
+	// RateLimitPerSecond is the sustained per-caller request rate. A request
+	// over the rate is refused with 429 and Retry-After before its body is
+	// read, so the expensive decode never starts.
+	RateLimitPerSecond int
+	// RateLimitBurst is the per-caller bucket depth: how many requests may be
+	// made back-to-back after an idle period.
+	RateLimitBurst int
+
 	// Logger receives the structured request log. main sets a JSON handler on
 	// stderr; tests capture it.
 	Logger *slog.Logger
@@ -115,6 +137,8 @@ func defaultConfig() config {
 		ShutdownTimeout:       defaultShutdownTimeout,
 		MaxBodyBytes:          maxRequestBodySize,
 		MaxConcurrentRequests: defaultMaxConcurrent,
+		RateLimitPerSecond:    defaultRateLimitPerSecond,
+		RateLimitBurst:        defaultRateLimitBurst,
 	}
 }
 
@@ -126,9 +150,12 @@ func loadConfig(getenv func(string) string) (config, error) {
 	cfg := defaultConfig()
 	cfg.Addr = valueOr(getenv("ADDR"), cfg.Addr)
 	cfg.MetricsAddr = valueOr(getenv("METRICS_ADDR"), cfg.MetricsAddr)
-	cfg.AuthToken = getenv("AUTH_TOKEN")
-
+	raw := getenv("AUTH_TOKEN")
+	cfg.AuthToken = raw
 	var err error
+	if cfg.AuthTokens, err = splitTokens(raw); err != nil {
+		return config{}, err
+	}
 	if cfg.ReadTimeout, err = durationEnv(getenv, "READ_TIMEOUT", cfg.ReadTimeout); err != nil {
 		return config{}, err
 	}
@@ -147,12 +174,28 @@ func loadConfig(getenv func(string) string) (config, error) {
 	if cfg.MaxConcurrentRequests, err = intEnv(getenv, "MAX_CONCURRENT_REQUESTS", cfg.MaxConcurrentRequests); err != nil {
 		return config{}, err
 	}
+	if cfg.RateLimitPerSecond, err = intEnv(getenv, "RATE_LIMIT_PER_SECOND", cfg.RateLimitPerSecond); err != nil {
+		return config{}, err
+	}
+	if cfg.RateLimitBurst, err = intEnv(getenv, "RATE_LIMIT_BURST", cfg.RateLimitBurst); err != nil {
+		return config{}, err
+	}
 
 	if cfg.MaxBodyBytes <= 0 {
 		return config{}, fmt.Errorf("MAX_BODY_BYTES must be positive, got %d", cfg.MaxBodyBytes)
 	}
 	if cfg.MaxConcurrentRequests <= 0 {
 		return config{}, fmt.Errorf("MAX_CONCURRENT_REQUESTS must be positive, got %d", cfg.MaxConcurrentRequests)
+	}
+	if cfg.RateLimitPerSecond <= 0 {
+		return config{}, fmt.Errorf("RATE_LIMIT_PER_SECOND must be positive, got %d", cfg.RateLimitPerSecond)
+	}
+	if cfg.RateLimitBurst <= 0 {
+		return config{}, fmt.Errorf("RATE_LIMIT_BURST must be positive, got %d", cfg.RateLimitBurst)
+	}
+	if cfg.RateLimitBurst < cfg.RateLimitPerSecond {
+		return config{}, fmt.Errorf("RATE_LIMIT_BURST (%d) must be at least RATE_LIMIT_PER_SECOND (%d)",
+			cfg.RateLimitBurst, cfg.RateLimitPerSecond)
 	}
 	// Fail closed rather than warn: a warning nobody reads is how a service
 	// ends up on a public interface with no authentication.
@@ -162,15 +205,14 @@ func loadConfig(getenv func(string) string) (config, error) {
 			cfg.Addr)
 	}
 
-	// Install the Authenticator the handlers will use. A bind with a token
-	// gets the bearer-token scheme (which also parses the richer
-	// id:token:ops;... form); a loopback bind with no token keeps the
-	// pre-existing open behaviour, now behind a named authenticator so a
-	// reader of the config can see which path it took.
-	if cfg.AuthToken != "" {
-		a, err := newBearerTokenAuthenticator(cfg.AuthToken)
+	// Install the Authenticator the handlers will use. A bind with tokens
+	// gets the bearer-token scheme; a loopback bind with no token keeps the
+	// open behaviour, behind a named authenticator so a reader can see which
+	// path it took.
+	if len(cfg.AuthTokens) > 0 {
+		a, err := newBearerTokenAuthenticatorFromTokens(cfg.AuthTokens)
 		if err != nil {
-			return config{}, fmt.Errorf("AUTH_TOKEN: %w; %s", err, authEnvVarDoc)
+			return config{}, fmt.Errorf("AUTH_TOKEN: %w", err)
 		}
 		cfg.Authenticator = a
 	} else {
@@ -206,6 +248,27 @@ func metricsDisabled(addr string) bool {
 	default:
 		return false
 	}
+}
+
+
+// splitTokens parses AUTH_TOKEN. One token is the common case; commas allow a
+// deployment to give each caller its own credential for per-caller rate limits.
+// Empty entries are rejected: a leading or trailing comma is a configuration
+// mistake, not a request to authenticate with the empty string.
+func splitTokens(raw string) ([]string, error) {
+	if strings.TrimSpace(raw) == "" {
+		return nil, nil
+	}
+	parts := strings.Split(raw, ",")
+	tokens := make([]string, 0, len(parts))
+	for _, part := range parts {
+		token := strings.TrimSpace(part)
+		if token == "" {
+			return nil, fmt.Errorf("AUTH_TOKEN contains an empty entry; use comma-separated non-empty tokens")
+		}
+		tokens = append(tokens, token)
+	}
+	return tokens, nil
 }
 
 func valueOr(v, fallback string) string {

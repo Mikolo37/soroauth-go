@@ -286,6 +286,29 @@ func knownOperationsSorted() []string {
 	return out
 }
 
+// newBearerTokenAuthenticatorFromTokens builds an authenticator from a plain
+// list of tokens. Each token receives a stable ordinal identity (caller1,
+// caller2, …) so the rate limiter can assign distinct per-caller buckets when
+// several tokens are configured.
+func newBearerTokenAuthenticatorFromTokens(tokens []string) (*bearerTokenAuthenticator, error) {
+	if len(tokens) == 0 {
+		return nil, errors.New("no tokens provided")
+	}
+	a := &bearerTokenAuthenticator{tokens: make([]tokenGrant, 0, len(tokens))}
+	for i, tok := range tokens {
+		tok = strings.TrimSpace(tok)
+		if tok == "" {
+			return nil, fmt.Errorf("token %d is empty", i+1)
+		}
+		a.tokens = append(a.tokens, tokenGrant{
+			headerValue: []byte("Bearer " + tok),
+			identity:    fmt.Sprintf("caller%d", i+1),
+			operations:  everyOperation(),
+		})
+	}
+	return a, nil
+}
+
 // authEnvVarDoc is embedded in the loadConfig error when AUTH_TOKEN fails to
 // parse, so an operator discovers the richer syntax without reading the
 // README during an outage.
