@@ -250,7 +250,6 @@ func metricsDisabled(addr string) bool {
 	}
 }
 
-
 // splitTokens parses AUTH_TOKEN. One token is the common case; commas allow a
 // deployment to give each caller its own credential for per-caller rate limits.
 // Empty entries are rejected: a leading or trailing comma is a configuration

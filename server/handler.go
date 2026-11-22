@@ -326,7 +326,6 @@ func (s *server) allowRate(w http.ResponseWriter, r *http.Request, identity stri
 	return false
 }
 
-
 // writeError writes the JSON error body and counts it. The status is the only
 // classification: the message never echoes request bytes.
 func (s *server) writeError(w http.ResponseWriter, r *http.Request, status int, msg string) {
